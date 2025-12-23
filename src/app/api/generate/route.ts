@@ -20,29 +20,36 @@ export async function POST(request: NextRequest) {
     // Generate reading with GPT-5.2 using Responses API
     const textResponse = await openai.responses.create({
       model: 'gpt-5.2',
-      input: `${ORACLE_SYSTEM_PROMPT}\n\n${buildUserPrompt(answers)}\n\nResponde ÚNICAMENTE con el objeto JSON, sin texto adicional antes o después.`,
-      reasoning: {
-        effort: 'medium'
-      },
-      text: {
-        verbosity: 'medium'
-      }
+      input: `${ORACLE_SYSTEM_PROMPT}\n\n${buildUserPrompt(answers)}\n\nResponde ÚNICAMENTE con el objeto JSON, sin texto adicional antes o después.`
     })
 
     // Parse the JSON response from output
     let readingData
     try {
       // Extract text from response output
-      const textOutput = textResponse.output.find((item: any) => item.type === 'text')
-      let outputText = textOutput?.text || ''
+      const textOutput = textResponse.output.find((item: any) => item.type === 'message')
+      let outputText = ''
+      
+      if (textOutput && 'content' in textOutput) {
+        // Content is an array of content parts
+        const textContent = textOutput.content?.find((c: any) => c.type === 'text')
+        if (textContent && 'text' in textContent) {
+          outputText = textContent.text
+        }
+      }
       
       // Clean any markdown code blocks if present
       outputText = outputText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
       
+      if (!outputText) {
+        console.error('No text output found in response:', JSON.stringify(textResponse.output))
+        throw new Error('No text content in response')
+      }
+      
       readingData = JSON.parse(outputText)
     } catch (parseError) {
       console.error('Failed to parse AI response:', parseError)
-      console.error('Raw output:', textResponse.output)
+      console.error('Raw output:', JSON.stringify(textResponse.output))
       return NextResponse.json(
         { error: 'Failed to parse oracle response' },
         { status: 500 }
