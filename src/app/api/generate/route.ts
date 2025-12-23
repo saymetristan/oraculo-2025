@@ -26,15 +26,17 @@ export async function POST(request: NextRequest) {
     // Parse the JSON response from output
     let readingData
     try {
-      // Extract text from response output
-      const textOutput = textResponse.output.find((item: any) => item.type === 'message')
-      let outputText = ''
+      // Use the output_text helper for simplicity
+      let outputText = textResponse.output_text || ''
       
-      if (textOutput && 'content' in textOutput) {
-        // Content is an array of content parts
-        const textContent = textOutput.content?.find((c: any) => c.type === 'text')
-        if (textContent && 'text' in textContent) {
-          outputText = textContent.text
+      // If no helper text, manually extract from message content
+      if (!outputText) {
+        const messageItem = textResponse.output.find((item: any) => item.type === 'message')
+        if (messageItem && 'content' in messageItem) {
+          const textContent = messageItem.content?.find((c: any) => c.type === 'output_text')
+          if (textContent && 'text' in textContent) {
+            outputText = textContent.text
+          }
         }
       }
       
