@@ -17,23 +17,32 @@ export async function POST(request: NextRequest) {
 
     const openai = getOpenAI()
 
-    // Generate reading with gpt-5.2
+    // Generate reading with GPT-5.2 using Responses API
     const textResponse = await openai.responses.create({
       model: 'gpt-5.2',
-      instructions: ORACLE_SYSTEM_PROMPT,
-      input: buildUserPrompt(answers),
+      input: `${ORACLE_SYSTEM_PROMPT}\n\n${buildUserPrompt(answers)}\n\nResponde ÚNICAMENTE con el objeto JSON, sin texto adicional antes o después.`,
+      reasoning: {
+        effort: 'medium'
+      },
+      text: {
+        verbosity: 'medium'
+      }
     })
 
-    // Parse the JSON response
+    // Parse the JSON response from output
     let readingData
     try {
-      const outputText = textResponse.output_text
-      // Extract JSON from the response (in case there's extra text)
-      const jsonMatch = outputText.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) throw new Error('No JSON found in response')
-      readingData = JSON.parse(jsonMatch[0])
+      // Extract text from response output
+      const textOutput = textResponse.output.find((item: any) => item.type === 'text')
+      let outputText = textOutput?.text || ''
+      
+      // Clean any markdown code blocks if present
+      outputText = outputText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+      
+      readingData = JSON.parse(outputText)
     } catch (parseError) {
       console.error('Failed to parse AI response:', parseError)
+      console.error('Raw output:', textResponse.output)
       return NextResponse.json(
         { error: 'Failed to parse oracle response' },
         { status: 500 }
@@ -54,6 +63,7 @@ export async function POST(request: NextRequest) {
         prompt: imagePrompt,
         size: '1024x1536', // Portrait for tarot card
         quality: 'high',
+        response_format: 'b64_json',
       })
 
       if (imageResponse.data && imageResponse.data[0]) {
