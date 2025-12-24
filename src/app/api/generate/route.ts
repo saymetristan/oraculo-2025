@@ -3,6 +3,10 @@ import { getOpenAI } from '@/lib/openai'
 import { ORACLE_SYSTEM_PROMPT, buildUserPrompt, TAROT_IMAGE_PROMPT } from '@/lib/prompts'
 import { RitualAnswers, OracleReading } from '@/lib/types'
 
+// In-memory storage for readings (temporary solution)
+// In production, use a database like Supabase or Redis
+const readingsCache = new Map<string, OracleReading>()
+
 export async function POST(request: NextRequest) {
   try {
     const answers: RitualAnswers = await request.json()
@@ -26,16 +30,15 @@ export async function POST(request: NextRequest) {
     // Parse the JSON response from output
     let readingData
     try {
-      // Use the output_text helper for simplicity
-      let outputText = textResponse.output_text || ''
-      
-      // If no helper text, manually extract from message content
+      let outputText = textResponse.output_text || ''; // Use the helper
+
       if (!outputText) {
-        const messageItem = textResponse.output.find((item: any) => item.type === 'message')
-        if (messageItem && 'content' in messageItem) {
-          const textContent = messageItem.content?.find((c: any) => c.type === 'output_text')
+        // Fallback for manual parsing if helper is empty
+        const textOutput = textResponse.output.find((item: any) => item.type === 'message');
+        if (textOutput && 'content' in textOutput) {
+          const textContent = textOutput.content?.find((c: any) => c.type === 'text');
           if (textContent && 'text' in textContent) {
-            outputText = textContent.text
+            outputText = textContent.text;
           }
         }
       }
@@ -72,11 +75,10 @@ export async function POST(request: NextRequest) {
         prompt: imagePrompt,
         size: '1024x1536', // Portrait for tarot card
         quality: 'high',
-        n: 1,
+        // gpt-image-1.5 always returns base64, no need for response_format
       })
 
-      // GPT image models always return base64 in b64_json field
-      if (imageResponse.data && imageResponse.data[0] && imageResponse.data[0].b64_json) {
+      if (imageResponse.data && imageResponse.data[0]) {
         imageBase64 = imageResponse.data[0].b64_json
       }
     } catch (imageError) {
@@ -100,6 +102,9 @@ export async function POST(request: NextRequest) {
       created_at: new Date().toISOString(),
     }
 
+    // Store reading in cache
+    readingsCache.set(id, reading)
+
     return NextResponse.json(reading)
   } catch (error) {
     console.error('Error generating reading:', error)
@@ -108,4 +113,28 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+// GET endpoint to retrieve a reading by ID
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get('id')
+
+  if (!id) {
+    return NextResponse.json(
+      { error: 'Missing reading ID' },
+      { status: 400 }
+    )
+  }
+
+  const reading = readingsCache.get(id)
+
+  if (!reading) {
+    return NextResponse.json(
+      { error: 'Reading not found' },
+      { status: 404 }
+    )
+  }
+
+  return NextResponse.json(reading)
 }
